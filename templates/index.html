@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Goszakup IT-тендеры</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      Goszakup <span class="brand-sub">IT-тендеры</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="run" type="button">Сбор данных</button>
+      <button class="tab-btn" data-tab="tenders" type="button">Тендеры</button>
+      <button class="tab-btn" data-tab="borderline" type="button">Пограничные</button>
+      <button class="tab-btn" data-tab="favorites" type="button">Избранные</button>
+      <button class="tab-btn" data-tab="keywords" type="button">Ключевые слова</button>
+      <button class="tab-btn" data-tab="ai" type="button">ИИ-проверка</button>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ================= ВКЛАДКА: СБОР ДАННЫХ ================= -->
+    <section id="tab-run" class="tab-panel active">
+      <div class="panel-grid">
+        <div class="card">
+          <h2>Управление сбором</h2>
+
+          <div class="method-switcher">
+            <button class="method-btn active" data-method="url" type="button">
+              <span class="method-icon">🔗</span>
+              <span class="method-text">
+                <span class="method-label">Ссылка с фильтрами</span>
+                <span class="method-sub">без браузера, рекомендуется</span>
+              </span>
+            </button>
+            <button class="method-btn" data-method="browser" type="button">
+              <span class="method-icon">🌐</span>
+              <span class="method-text">
+                <span class="method-label">Через браузер (Edge)</span>
+                <span class="method-sub">резервный способ</span>
+              </span>
+            </button>
+          </div>
+
+          <div id="method-panel-url" class="method-panel active">
+            <div class="step-desc">Откройте <a class="tender-link" href="https://goszakup.gov.kz/ru/search/announce" target="_blank">страницу поиска объявлений</a> на goszakup.gov.kz в любом браузере, настройте нужные фильтры, нажмите «Найти» и скопируйте ссылку из адресной строки сюда. Авторизация не нужна.</div>
+            <div class="url-input-row">
+              <input type="text" id="search-url-input" placeholder="https://goszakup.gov.kz/ru/search/announce?filter...">
+              <button id="btn-save-url" class="btn btn-primary" type="button">Сохранить</button>
+            </div>
+          </div>
+
+          <div id="method-panel-browser" class="method-panel">
+            <div class="run-steps">
+              <div class="step">
+                <div class="step-num">A</div>
+                <div class="step-body">
+                  <div class="step-title">Открыть окно Edge для автоматизации</div>
+                  <div class="step-desc">Откроется отдельное окно Edge со своим профилем. Авторизуйтесь на goszakup.gov.kz, настройте фильтры на странице поиска и нажмите «Найти».</div>
+                  <button id="btn-launch" class="btn btn-secondary" type="button">Открыть Edge</button>
+                </div>
+              </div>
+              <div class="step">
+                <div class="step-num">B</div>
+                <div class="step-body">
+                  <div class="step-title">Подтвердить готовность</div>
+                  <div class="step-desc">Нажмите, когда список результатов уже открыт в этом окне Edge — ссылка попадёт в поле выше.</div>
+                  <button id="btn-ready" class="btn btn-secondary" type="button">Я готов</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="run-divider"></div>
+
+          <div class="step">
+            <div class="step-num">▶</div>
+            <div class="step-body">
+              <div class="step-title">Запустить / остановить сбор</div>
+              <div class="step-desc">Сбор идёт в фоне; прогресс и статистика обновляются ниже.</div>
+              <button id="btn-start" class="btn btn-success" type="button">Запустить сбор</button>
+              <button id="btn-stop" class="btn btn-danger" type="button">Остановить</button>
+            </div>
+          </div>
+
+          <div class="state-row">
+            <span class="badge" id="state-badge">idle</span>
+            <span id="base-url-line" class="muted"></span>
+          </div>
+          <div class="muted" id="last-finished-line"></div>
+
+          <div class="auto-restart-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="auto-restart-checkbox" checked>
+              Автоматически перезапускать при сбое (например, обрыв сети)
+            </label>
+            <span class="muted" id="auto-restart-info"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Статистика сессии <span class="live-dot" id="live-dot-stats"></span></h2>
+          <div class="stats-grid">
+            <div class="stat"><div class="stat-num" id="s-page">0</div><div class="stat-label">страница</div></div>
+            <div class="stat"><div class="stat-num" id="s-checked">0</div><div class="stat-label">проверено</div></div>
+            <div class="stat"><div class="stat-num" id="s-found">0</div><div class="stat-label">найдено IT</div></div>
+            <div class="stat"><div class="stat-num" id="s-astana">0</div><div class="stat-label">из них Астана</div></div>
+            <div class="stat"><div class="stat-num" id="s-dups">0</div><div class="stat-label">дублей</div></div>
+            <div class="stat"><div class="stat-num" id="s-errors">0</div><div class="stat-label">ошибок</div></div>
+            <div class="stat"><div class="stat-num" id="s-removed">0</div><div class="stat-label">удалено заверш.</div></div>
+            <div class="stat"><div class="stat-num" id="s-updated">0</div><div class="stat-label">обновлено статусов</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Живой лог <span class="live-dot" id="live-dot-log"></span></h2>
+        <pre id="log-box" class="log-box"></pre>
+      </div>
+    </section>
+
+    <!-- ================= ВКЛАДКА: ТЕНДЕРЫ ================= -->
+    <section id="tab-tenders" class="tab-panel">
+      <div class="card filters-card">
+        <div class="filters-row">
+          <input type="text" id="f-search" placeholder="Поиск по названию, заказчику, ключевым словам...">
+          <select id="f-city"><option value="">Город: все</option><option value="Астана">Астана</option><option value="Остальные">Остальные</option></select>
+          <select id="f-priority"><option value="">Приоритет: все</option></select>
+          <select id="f-ittype"><option value="">Тип IT: все</option></select>
+          <select id="f-status"><option value="">Статус: все</option></select>
+          <select id="f-viewed"><option value="">Просмотрено: все</option><option value="no">Непросмотренные</option><option value="yes">Просмотренные</option></select>
+          <input type="number" id="f-min-amount" placeholder="Сумма от, тг.">
+          <button id="btn-apply-filters" class="btn btn-primary" type="button">Применить</button>
+          <button id="btn-refresh-tenders" class="btn btn-secondary" type="button">Обновить из файла</button>
+        </div>
+        <div class="legend"><span class="legend-item"><span class="legend-dot legend-dot-expired"></span>срок истёк</span><span class="legend-item"><span class="legend-dot legend-dot-warning"></span>осталось ≤3 дней</span></div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table id="tenders-table">
+            <thead>
+              <tr>
+                <th class="viewed-col">✓</th>
+                <th class="fav-col">★</th>
+                <th data-sort="№ объявления">№</th>
+                <th data-sort="Название лота/объявления">Название</th>
+                <th data-sort="Заказчик">Заказчик</th>
+                <th data-sort="Город">Город</th>
+                <th data-sort="Сумма, тг.">Сумма, тг.</th>
+                <th data-sort="Статус">Статус</th>
+                <th data-sort="Тип IT">Тип IT</th>
+                <th data-sort="Приоритет">Приоритет</th>
+                <th data-sort="Начало приёма заявок">Начало приёма</th>
+                <th data-sort="Окончание приёма заявок">Окончание приёма</th>
+                <th>Ссылка</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tenders-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button id="tenders-prev" class="btn btn-secondary" type="button">← Назад</button>
+          <span id="tenders-page-info"></span>
+          <button id="tenders-next" class="btn btn-secondary" type="button">Вперёд →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ВКЛАДКА: ПОГРАНИЧНЫЕ ================= -->
+    <section id="tab-borderline" class="tab-panel">
+      <div class="card filters-card">
+        <div class="filters-row">
+          <input type="text" id="bl-search" placeholder="Поиск по названию/ключевым словам...">
+          <input type="number" id="bl-min-score" placeholder="Мин. балл" value="6">
+          <button id="btn-apply-borderline" class="btn btn-primary" type="button">Применить</button>
+        </div>
+        <p class="muted">Тендеры, набравшие заметный, но недостаточный балл для попадания в основной список. Полезно для донастройки ключевых слов на вкладке «Ключевые слова».</p>
+        <div class="legend"><span class="legend-item"><span class="legend-dot legend-dot-expired"></span>срок истёк</span><span class="legend-item"><span class="legend-dot legend-dot-warning"></span>осталось ≤3 дней</span></div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table id="borderline-table">
+            <thead>
+              <tr>
+                <th class="fav-col">★</th>
+                <th>Балл</th>
+                <th>№ объявления</th>
+                <th>Название</th>
+                <th>Сумма, тг.</th>
+                <th>Начало приёма</th>
+                <th>Окончание приёма</th>
+                <th>Совпавшие слова</th>
+                <th>Ссылка</th>
+                <th>Время</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="borderline-tbody"></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button id="borderline-prev" class="btn btn-secondary" type="button">← Назад</button>
+          <span id="borderline-page-info"></span>
+          <button id="borderline-next" class="btn btn-secondary" type="button">Вперёд →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ВКЛАДКА: ИЗБРАННЫЕ ================= -->
+    <section id="tab-favorites" class="tab-panel">
+      <div class="card filters-card">
+        <div class="filters-row">
+          <input type="text" id="fav-search" placeholder="Поиск по названию, заказчику, заметке...">
+          <button id="btn-apply-favorites" class="btn btn-primary" type="button">Применить</button>
+          <button id="btn-export-favorites" class="btn btn-secondary" type="button">Скачать Excel</button>
+        </div>
+        <p class="muted">Тендеры, отмеченные звёздочкой на вкладке «Тендеры». Остаются здесь даже после того, как тендер завершится и будет убран из основной таблицы. Файл <code>izbrannye_tendery.xlsx</code> обновляется автоматически при любом изменении.</p>
+        <div class="legend"><span class="legend-item"><span class="legend-dot legend-dot-expired"></span>срок истёк</span><span class="legend-item"><span class="legend-dot legend-dot-warning"></span>осталось ≤3 дней</span></div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table id="favorites-table">
+            <thead>
+              <tr>
+                <th>№</th>
+                <th>Название</th>
+                <th>Заказчик</th>
+                <th>Город</th>
+                <th>Сумма, тг.</th>
+                <th>Статус</th>
+                <th>Приоритет</th>
+                <th>Начало приёма</th>
+                <th>Окончание приёма</th>
+                <th>Ссылка</th>
+                <th class="note-col">Заметка</th>
+                <th>Добавлено</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="favorites-tbody"></tbody>
+          </table>
+        </div>
+        <p id="favorites-empty" class="muted" style="display:none;">Пока ничего не добавлено — отмечайте тендеры звёздочкой на вкладке «Тендеры».</p>
+      </div>
+    </section>
+
+    <!-- ================= ВКЛАДКА: КЛЮЧЕВЫЕ СЛОВА ================= -->
+    <section id="tab-keywords" class="tab-panel">
+      <div class="card">
+        <h2>Тематики (профили ключевых слов)</h2>
+        <p class="muted">
+          Можно держать несколько тематик одновременно — включённые профили объединяются
+          при поиске (без дублей). Например держите включёнными сразу «IT» и
+          «Проектирование (AutoCAD)», если ищете и то, и другое.
+        </p>
+        <div id="profile-chips" class="profile-chips"></div>
+        <div class="profile-actions">
+          <button id="btn-new-profile" class="btn btn-secondary" type="button">+ Новый профиль</button>
+          <button id="btn-duplicate-profile" class="btn btn-secondary" type="button">Дублировать</button>
+          <button id="btn-rename-profile" class="btn btn-secondary" type="button">Переименовать</button>
+          <button id="btn-delete-profile" class="btn btn-danger" type="button">Удалить профиль</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="kw-editor-header">
+          <h2>Редактирование: <span id="editing-profile-name" class="editing-profile-name"></span></h2>
+          <select id="profile-editor-select"></select>
+        </div>
+        <p class="muted">
+          Изменения сохраняются в этот профиль и применяются сразу к следующему сбору
+          (перезапускать приложение не нужно). Одна строка = одно ключевое слово/фраза, регистр не важен.
+        </p>
+        <div id="kw-status" class="kw-status"></div>
+        <div class="kw-grid">
+          <div class="kw-col">
+            <h3>Сильные <span class="muted">(strong)</span></h3>
+            <textarea id="kw-strong" rows="14"></textarea>
+          </div>
+          <div class="kw-col">
+            <h3>Средние <span class="muted">(medium)</span></h3>
+            <textarea id="kw-medium" rows="14"></textarea>
+          </div>
+          <div class="kw-col">
+            <h3>Слабые <span class="muted">(weak)</span></h3>
+            <textarea id="kw-weak" rows="14"></textarea>
+          </div>
+          <div class="kw-col">
+            <h3>Контекстные фразы <span class="muted">(context)</span></h3>
+            <textarea id="kw-context" rows="14"></textarea>
+          </div>
+          <div class="kw-col">
+            <h3>Негативные <span class="muted">(negative)</span></h3>
+            <textarea id="kw-negative" rows="14"></textarea>
+          </div>
+        </div>
+        <button id="btn-save-keywords" class="btn btn-primary" type="button">Сохранить профиль</button>
+        <button id="btn-reload-keywords" class="btn btn-secondary" type="button">Отменить изменения</button>
+      </div>
+    </section>
+
+    <!-- ================= ВКЛАДКА: ИИ-ПРОВЕРКА ================= -->
+    <section id="tab-ai" class="tab-panel">
+      <div class="card">
+        <h2>ИИ-проверка релевантности <span class="muted">(опционально)</span></h2>
+        <p class="muted">
+          Ключевые слова ищут точные совпадения — не понимают падежи и синонимы
+          ("дизайн-проекта" уже не совпадёт с фразой "дизайн-проект"). ИИ вместо
+          этого читает тендер осмысленно и сравнивает с описанным ниже критерием своими словами.
+          Работает как дополнительный слой поверх ключевых слов, а не замена им.
+        </p>
+        <div id="ai-status-line" class="muted"></div>
+        <label class="checkbox-label" style="margin: 10px 0;">
+          <input type="checkbox" id="ai-enabled-checkbox">
+          Включить ИИ-проверку
+        </label>
+        <p class="muted">Критерий (свободный текст — опишите, что именно ищете):</p>
+        <textarea id="ai-criteria" rows="4" class="ai-criteria-textarea"></textarea>
+        <div class="ai-settings-row">
+          <label class="ai-inline-label">
+            Провайдер:
+            <select id="ai-provider">
+              <option value="gemini">Google Gemini — бесплатный тариф</option>
+              <option value="anthropic">Anthropic Claude — платно</option>
+            </select>
+          </label>
+          <label class="ai-inline-label">
+            Режим:
+            <select id="ai-verify-mode">
+              <option value="borderline">Только пограничные (дешевле)</option>
+              <option value="all">Перепроверять все совпадения (точнее, дороже)</option>
+            </select>
+          </label>
+          <label class="ai-inline-label">
+            Модель:
+            <select id="ai-model"></select>
+          </label>
+        </div>
+        <p class="muted" id="ai-provider-hint"></p>
+        <button id="btn-save-ai-settings" class="btn btn-primary" type="button">Сохранить настройки ИИ</button>
+        <div id="ai-save-status" class="kw-status"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

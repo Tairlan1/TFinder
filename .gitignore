@@ -1,0 +1,37 @@
+# Сгенерированные данные (создаются при запуске app.py/tz_report.py) -
+# не должны попадать в репозиторий, у каждого пользователя свои.
+goszakup_it_tenders.xlsx
+goszakup_it_tenders_astana.xlsx
+izbrannye_tendery.xlsx
+*_с_ТЗ.xlsx
+borderline_candidates.log
+checkpoint_seen_ids.json
+viewed_tenders.json
+favorites.json
+keyword_profiles.json
+it_keywords.json
+run_stats.json
+ai_settings.json
+errors.log
+debug_html/
+tmp_downloads/
+ТЗ/
+.edge_automation_profile/
+msedgedriver.exe
+
+# Секреты - никогда не коммитить
+.env
+*.pem
+*api_key*
+*API_KEY*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS/редакторы
+.DS_Store
+.vscode/
+.idea/
