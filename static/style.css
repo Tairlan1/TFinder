@@ -313,9 +313,6 @@ main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; width: 100%; 
 .table-wrap { overflow-x: auto; border-radius: 8px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 thead th {
-  position: sticky;
-  top: var(--topbar-h);
-  z-index: 2;
   text-align: left;
   color: var(--muted);
   font-weight: 600;
@@ -323,7 +320,6 @@ thead th {
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
   background: var(--panel);
-  box-shadow: 0 1px 0 var(--border);
 }
 thead th[data-sort] { cursor: pointer; }
 thead th[data-sort]:hover { color: var(--text); }
