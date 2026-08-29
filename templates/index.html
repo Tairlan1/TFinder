@@ -120,8 +120,15 @@
       </div>
 
       <div class="card">
-        <h2>Живой лог <span class="live-dot" id="live-dot-log"></span></h2>
-        <pre id="log-box" class="log-box"></pre>
+        <div class="log-header">
+          <h2>Живой лог <span class="live-dot" id="live-dot-log"></span></h2>
+          <div class="log-view-toggle">
+            <button class="log-view-btn active" data-view="pretty" type="button">Простой вид</button>
+            <button class="log-view-btn" data-view="raw" type="button">Технический</button>
+          </div>
+        </div>
+        <div id="log-box-pretty" class="log-box log-box-pretty"><div class="log-empty">Лог появится, когда начнётся сбор…</div></div>
+        <pre id="log-box-raw" class="log-box log-box-raw" style="display: none;"></pre>
       </div>
     </section>
 

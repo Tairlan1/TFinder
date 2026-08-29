@@ -61,9 +61,31 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ============================================================================
 
 _log_lock = threading.Lock()
-LOG_BUFFER = []          # list of {"id": int, "ts": str, "msg": str}
+LOG_BUFFER = []          # list of {"id": int, "ts": str, "msg": str, "level": str}
 _log_counter = 0
 MAX_LOG_LINES = 5000
+
+
+def _classify_log_level(msg: str) -> str:
+    """Определяет 'смысл' строки лога для дружелюбного отображения в
+    интерфейсе (иконка/цвет) - без необходимости трогать каждый из
+    полусотни вызовов log() по отдельности. Основано на реально
+    используемых в коде префиксах/фразах."""
+    m = msg.strip()
+    if not m:
+        return "info"
+    if set(m) == {"="}:
+        return "divider"
+    if m.startswith("[!]") or "Ошибка" in m or "ошибка" in m or m.startswith("Traceback") or 'File "' in m:
+        return "error"
+    if m.startswith("[IT"):
+        return "success"
+    if m.startswith("[= дубль]"):
+        return "neutral"
+    if (m.startswith("[авто-перезапуск]") or "Автоматический перезапуск" in m
+            or "Останавлив" in m or "остановлен" in m.lower()):
+        return "warning"
+    return "info"
 
 
 def log(msg: str):
@@ -75,6 +97,7 @@ def log(msg: str):
             "id": _log_counter,
             "ts": time.strftime("%H:%M:%S"),
             "msg": line,
+            "level": _classify_log_level(line),
         })
         if len(LOG_BUFFER) > MAX_LOG_LINES:
             del LOG_BUFFER[: len(LOG_BUFFER) - MAX_LOG_LINES]

@@ -79,7 +79,8 @@ function renderRunState(s) {
   const isLive = s.state === "running";
   document.getElementById("live-dot-stats").classList.toggle("on", isLive);
   document.getElementById("live-dot-log").classList.toggle("on", isLive);
-  document.getElementById("log-box").classList.toggle("live", isLive);
+  document.getElementById("log-box-pretty").classList.toggle("live", isLive);
+  document.getElementById("log-box-raw").classList.toggle("live", isLive);
 
   const btnLaunch = document.getElementById("btn-launch");
   const btnReady = document.getElementById("btn-ready");
@@ -130,17 +131,80 @@ async function pollRunState() {
   } catch (e) { /* сервер ещё не готов - пропускаем */ }
 }
 
+const LOG_LEVEL_ICONS = {
+  success: "✅",
+  error: "⚠️",
+  warning: "⏸️",
+  neutral: "➖",
+  info: "•",
+};
+
+// Убирает технические префиксы/URL-хвосты и переписывает самые частые
+// сообщения человеческим языком - для "простого вида" лога. "Технический"
+// вид по-прежнему показывает исходный текст без изменений.
+function humanizeLogMessage(msg, level) {
+  let text = msg.trim();
+  text = text.replace(/^\[IT\/Астана\]\s*/, "");
+  text = text.replace(/^\[IT\]\s*/, "");
+  text = text.replace(/^\[= дубль\]\s*/, "");
+  text = text.replace(/^\[!\]\s*/, "");
+  text = text.replace(/^\[авто-перезапуск\]\s*/, "");
+
+  const pageMatch = text.match(/^---\s*Страница\s*(\d+):\s*https?:\/\/\S+/);
+  if (pageMatch) return `Проверяю страницу ${pageMatch[1]} результатов поиска…`;
+
+  const idTitleMatch = text.match(/^([^\s:]+):\s*(.+)$/);
+  if (level === "success" && idTitleMatch) {
+    return `Найден тендер № ${idTitleMatch[1]} — ${idTitleMatch[2]}`;
+  }
+  if (level === "neutral" && idTitleMatch) {
+    return `Уже был в списке: № ${idTitleMatch[1]} — ${idTitleMatch[2]}`;
+  }
+  return text;
+}
+
+function renderPrettyLogEntry(line) {
+  if (line.level === "divider") {
+    return `<div class="log-entry level-divider"><span class="log-entry-divider-line"></span></div>`;
+  }
+  const icon = LOG_LEVEL_ICONS[line.level] || "•";
+  const text = humanizeLogMessage(line.msg, line.level);
+  return `<div class="log-entry level-${line.level}">` +
+    `<span class="log-entry-icon">${icon}</span>` +
+    `<span class="log-entry-body">${escapeHtml(text)}</span>` +
+    `<span class="log-entry-time">${line.ts}</span>` +
+  `</div>`;
+}
+
+document.querySelectorAll(".log-view-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".log-view-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const isPretty = btn.dataset.view === "pretty";
+    document.getElementById("log-box-pretty").style.display = isPretty ? "block" : "none";
+    document.getElementById("log-box-raw").style.display = isPretty ? "none" : "block";
+  });
+});
+
 async function pollLogs() {
   try {
     const data = await api("/api/run/logs?since=" + lastLogId);
     if (data.lines && data.lines.length) {
-      const box = document.getElementById("log-box");
-      const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
+      const prettyBox = document.getElementById("log-box-pretty");
+      const rawBox = document.getElementById("log-box-raw");
+      const prettyAtBottom = prettyBox.scrollTop + prettyBox.clientHeight >= prettyBox.scrollHeight - 20;
+      const rawAtBottom = rawBox.scrollTop + rawBox.clientHeight >= rawBox.scrollHeight - 20;
+
+      const emptyPlaceholder = prettyBox.querySelector(".log-empty");
+      if (emptyPlaceholder) emptyPlaceholder.remove();
+
       for (const line of data.lines) {
-        box.textContent += `[${line.ts}] ${line.msg}\n`;
+        prettyBox.insertAdjacentHTML("beforeend", renderPrettyLogEntry(line));
+        rawBox.textContent += `[${line.ts}] ${line.msg}\n`;
         lastLogId = line.id;
       }
-      if (atBottom) box.scrollTop = box.scrollHeight;
+      if (prettyAtBottom) prettyBox.scrollTop = prettyBox.scrollHeight;
+      if (rawAtBottom) rawBox.scrollTop = rawBox.scrollHeight;
     }
   } catch (e) { /* игнорируем временные сбои опроса */ }
 }
