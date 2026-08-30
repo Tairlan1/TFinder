@@ -889,20 +889,38 @@ function updateAiStatusLine() {
   }
 }
 
+function updateAiKeyFieldsVisibility(provider) {
+  document.getElementById("ai-key-field-gemini").style.display = provider === "gemini" ? "block" : "none";
+  document.getElementById("ai-key-field-anthropic").style.display = provider === "anthropic" ? "block" : "none";
+}
+
 async function loadAiSettings() {
   aiSettingsState = await api("/api/ai-settings");
   document.getElementById("ai-enabled-checkbox").checked = !!aiSettingsState.enabled;
   document.getElementById("ai-criteria").value = aiSettingsState.criteria || "";
   document.getElementById("ai-verify-mode").value = aiSettingsState.verify_mode || "borderline";
   document.getElementById("ai-provider").value = aiSettingsState.provider || "gemini";
+  document.getElementById("ai-gemini-key").value = aiSettingsState.gemini_api_key || "";
+  document.getElementById("ai-anthropic-key").value = aiSettingsState.anthropic_api_key || "";
   populateAiModelOptions(aiSettingsState.provider || "gemini", aiSettingsState.model);
+  updateAiKeyFieldsVisibility(aiSettingsState.provider || "gemini");
   updateAiStatusLine();
 }
 
 document.getElementById("ai-provider").addEventListener("change", (e) => {
   populateAiModelOptions(e.target.value, null);
+  updateAiKeyFieldsVisibility(e.target.value);
   updateAiStatusLine();
 });
+
+function wireShowHideToggle(buttonId, inputId) {
+  document.getElementById(buttonId).addEventListener("click", () => {
+    const input = document.getElementById(inputId);
+    input.type = input.type === "password" ? "text" : "password";
+  });
+}
+wireShowHideToggle("btn-toggle-gemini-key", "ai-gemini-key");
+wireShowHideToggle("btn-toggle-anthropic-key", "ai-anthropic-key");
 
 document.getElementById("btn-save-ai-settings").addEventListener("click", async () => {
   const payload = {
@@ -911,6 +929,8 @@ document.getElementById("btn-save-ai-settings").addEventListener("click", async 
     provider: document.getElementById("ai-provider").value,
     verify_mode: document.getElementById("ai-verify-mode").value,
     model: document.getElementById("ai-model").value,
+    gemini_api_key: document.getElementById("ai-gemini-key").value,
+    anthropic_api_key: document.getElementById("ai-anthropic-key").value,
   };
   const res = await api("/api/ai-settings", {
     method: "POST",
@@ -921,6 +941,8 @@ document.getElementById("btn-save-ai-settings").addEventListener("click", async 
   if (res.ok) {
     statusEl.textContent = "Сохранено. Применится к следующему сбору.";
     statusEl.className = "kw-status ok";
+    aiSettingsState = res;
+    updateAiStatusLine();
   } else {
     statusEl.textContent = "Ошибка: " + (res.error || "не удалось сохранить");
     statusEl.className = "kw-status err";

@@ -354,6 +354,25 @@
           </label>
         </div>
         <p class="muted" id="ai-provider-hint"></p>
+
+        <div id="ai-key-field-gemini" class="ai-key-field">
+          <p class="muted">Ключ Gemini (вставьте сюда — получить бесплатно: <a class="tender-link" href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>):</p>
+          <div class="ai-key-input-row">
+            <input type="password" id="ai-gemini-key" placeholder="AIzaSy... или AQ...">
+            <button type="button" class="btn btn-secondary" id="btn-toggle-gemini-key">👁</button>
+          </div>
+        </div>
+
+        <div id="ai-key-field-anthropic" class="ai-key-field" style="display: none;">
+          <p class="muted">Ключ Anthropic (из console.anthropic.com):</p>
+          <div class="ai-key-input-row">
+            <input type="password" id="ai-anthropic-key" placeholder="sk-ant-...">
+            <button type="button" class="btn btn-secondary" id="btn-toggle-anthropic-key">👁</button>
+          </div>
+        </div>
+
+        <p class="muted">Ключ сохраняется только в локальном файле <code>ai_settings.json</code> на вашем компьютере — не в коде, не в GitHub. Если вместо этого задана переменная окружения (GEMINI_API_KEY / ANTHROPIC_API_KEY), она имеет приоритет.</p>
+
         <button id="btn-save-ai-settings" class="btn btn-primary" type="button">Сохранить настройки ИИ</button>
         <div id="ai-save-status" class="kw-status"></div>
       </div>

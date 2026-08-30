@@ -563,6 +563,8 @@ def _default_ai_settings() -> dict:
         "model": "gemini-2.5-flash",
         "criteria": DEFAULT_AI_CRITERIA,
         "verify_mode": "borderline",     # "borderline" | "all"
+        "gemini_api_key": "",
+        "anthropic_api_key": "",
     }
 
 
@@ -599,7 +601,7 @@ def get_ai_settings() -> dict:
 
 
 def save_ai_settings(data: dict) -> dict:
-    global _ai_settings_cache
+    global _ai_settings_cache, _anthropic_client
     with _ai_settings_lock:
         current = _ai_settings_cache or _load_ai_settings_from_disk()
         merged = dict(current)
@@ -611,9 +613,31 @@ def save_ai_settings(data: dict) -> dict:
         merged["criteria"] = str(data.get("criteria", current["criteria"]))
         verify_mode = data.get("verify_mode", current["verify_mode"])
         merged["verify_mode"] = verify_mode if verify_mode in ("borderline", "all") else current["verify_mode"]
+        # Ключи, вставленные прямо в интерфейс - хранятся ТОЛЬКО в
+        # ai_settings.json (этот файл в .gitignore, в репозиторий никогда
+        # не попадёт), никогда не пишутся в исходный код. Если поле в
+        # запросе не передано - оставляем то, что уже было сохранено
+        # раньше (чтобы сохранение других настроек не стирало ключ).
+        if "gemini_api_key" in data:
+            merged["gemini_api_key"] = str(data.get("gemini_api_key") or "").strip()
+        if "anthropic_api_key" in data:
+            merged["anthropic_api_key"] = str(data.get("anthropic_api_key") or "").strip()
+            _anthropic_client = None  # сбрасываем закэшированный клиент - вдруг ключ поменялся
         _ai_settings_cache = merged
         _save_ai_settings_to_disk(merged)
         return dict(merged)
+
+
+def _resolve_api_key(provider: str) -> str:
+    """Переменная окружения имеет приоритет (для тех, кто предпочитает
+    настраивать через неё) - но если её нет, используется ключ, вставленный
+    прямо во вкладке 'ИИ-проверка' и сохранённый в ai_settings.json."""
+    env_var = "GEMINI_API_KEY" if provider == "gemini" else "ANTHROPIC_API_KEY"
+    key = os.environ.get(env_var)
+    if key:
+        return key
+    settings = get_ai_settings()
+    return settings.get(f"{provider}_api_key", "") or ""
 
 
 def ai_provider_ready(provider: str) -> bool:
@@ -622,26 +646,25 @@ def ai_provider_ready(provider: str) -> bool:
     и внутри process_tender (чтобы не пытаться звонить туда, где заведомо
     ничего не выйдет)."""
     if provider == "gemini":
-        return bool(os.environ.get("GEMINI_API_KEY"))
+        return bool(_resolve_api_key("gemini"))
     if provider == "anthropic":
-        return ANTHROPIC_AVAILABLE and bool(os.environ.get("ANTHROPIC_API_KEY"))
+        return ANTHROPIC_AVAILABLE and bool(_resolve_api_key("anthropic"))
     return False
 
 
 _anthropic_client = None
+_anthropic_client_key = None
 _anthropic_client_lock = threading.Lock()
 
 
-def _get_anthropic_client():
-    global _anthropic_client
-    if not ANTHROPIC_AVAILABLE:
-        return None
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
+def _get_anthropic_client(api_key: str):
+    global _anthropic_client, _anthropic_client_key
+    if not ANTHROPIC_AVAILABLE or not api_key:
         return None
     with _anthropic_client_lock:
-        if _anthropic_client is None:
+        if _anthropic_client is None or _anthropic_client_key != api_key:
             _anthropic_client = anthropic.Anthropic(api_key=api_key)
+            _anthropic_client_key = api_key
         return _anthropic_client
 
 
@@ -675,8 +698,7 @@ def _parse_ai_json_response(text: str):
     return {"relevant": bool(data.get("relevant")), "reasoning": str(data.get("reasoning", ""))[:300]}
 
 
-def _ai_check_relevance_gemini(title: str, description: str, criteria: str, model: str):
-    api_key = os.environ.get("GEMINI_API_KEY")
+def _ai_check_relevance_gemini(title: str, description: str, criteria: str, model: str, api_key: str):
     if not api_key:
         return None
     prompt = _AI_RELEVANCE_PROMPT.format(
@@ -697,8 +719,8 @@ def _ai_check_relevance_gemini(title: str, description: str, criteria: str, mode
         return None
 
 
-def _ai_check_relevance_anthropic(title: str, description: str, criteria: str, model: str):
-    client = _get_anthropic_client()
+def _ai_check_relevance_anthropic(title: str, description: str, criteria: str, model: str, api_key: str):
+    client = _get_anthropic_client(api_key)
     if client is None:
         return None
     try:
@@ -728,9 +750,10 @@ def ai_check_relevance(title: str, description: str, criteria: str, model: str, 
     удалась (нет ключа/модуля, сетевая ошибка, кривой ответ) - в этом
     случае вызывающий код должен просто ничего не менять (не отклонять и
     не продвигать тендер на основании неудавшейся проверки)."""
+    api_key = _resolve_api_key(provider)
     if provider == "anthropic":
-        return _ai_check_relevance_anthropic(title, description, criteria, model)
-    return _ai_check_relevance_gemini(title, description, criteria, model)
+        return _ai_check_relevance_anthropic(title, description, criteria, model, api_key)
+    return _ai_check_relevance_gemini(title, description, criteria, model, api_key)
 
 # Слова-исключения "продление лицензии" — не редактируются через UI
 # (это не тематические ключевые слова, а грамматические паттерны),

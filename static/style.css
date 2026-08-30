@@ -423,6 +423,21 @@ tr.row-warning.row-viewed { opacity: 0.6; }
   margin-bottom: 12px;
 }
 .ai-settings-row { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 14px; }
+
+.ai-key-field { margin-bottom: 12px; }
+.ai-key-input-row { display: flex; gap: 8px; max-width: 480px; }
+.ai-key-input-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: "SF Mono", Consolas, monospace;
+}
+.ai-key-input-row .btn { padding: 8px 12px; }
 .ai-inline-label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
 .ai-inline-label select {
   background: var(--panel-2);
