@@ -20,6 +20,7 @@
       <button class="tab-btn" data-tab="favorites" type="button">Избранные</button>
       <button class="tab-btn" data-tab="keywords" type="button">Ключевые слова</button>
       <button class="tab-btn" data-tab="ai" type="button">ИИ-проверка</button>
+      <button class="tab-btn" data-tab="ai-rescan" type="button">Пересмотр ИИ</button>
     </nav>
   </header>
 
@@ -375,6 +376,44 @@
 
         <button id="btn-save-ai-settings" class="btn btn-primary" type="button">Сохранить настройки ИИ</button>
         <div id="ai-save-status" class="kw-status"></div>
+      </div>
+    </section>
+
+    <!-- ================= ВКЛАДКА: ПЕРЕСМОТР ИИ ================= -->
+    <section id="tab-ai-rescan" class="tab-panel">
+      <div class="card">
+        <h2>Пересмотр уже собранных данных <span class="muted">(разовое действие)</span></h2>
+        <p class="muted">
+          В отличие от ИИ-проверки во время сбора (она смотрит только новые тендеры), это —
+          разовый прогон текущего критерия по тому, что уже лежит в «Тендеры» и «Пограничные».
+          Полезно, например, после того как вы изменили или уточнили критерий на вкладке
+          «ИИ-проверка», и хотите пересмотреть уже накопленное, не запуская новый сбор с нуля.
+        </p>
+        <div id="ai-rescan-status-line" class="muted"></div>
+
+        <div class="rescan-targets">
+          <label class="checkbox-label">
+            <input type="checkbox" id="rescan-target-borderline" checked>
+            «Пограничные» — то, что подойдёт под критерий, переносится в «Тендеры»
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="rescan-target-tenders" checked>
+            «Тендеры» — несоответствующее только помечается (не удаляется)
+          </label>
+        </div>
+
+        <button id="btn-start-ai-rescan" class="btn btn-primary" type="button">Запустить пересмотр</button>
+
+        <div class="rescan-progress" id="rescan-progress" style="display: none;">
+          <div class="stats-grid rescan-stats-grid">
+            <div class="stat"><div class="stat-num" id="rescan-checked">0</div><div class="stat-label">проверено</div></div>
+            <div class="stat"><div class="stat-num" id="rescan-total">0</div><div class="stat-label">всего к проверке</div></div>
+            <div class="stat"><div class="stat-num" id="rescan-promoted">0</div><div class="stat-label">перенесено в тендеры</div></div>
+            <div class="stat"><div class="stat-num" id="rescan-flagged">0</div><div class="stat-label">помечено в тендерах</div></div>
+          </div>
+        </div>
+
+        <p class="muted">Подробный ход проверки (какой тендер перенесён/помечен) виден в «Живом логе» на вкладке «Сбор данных».</p>
       </div>
     </section>
 

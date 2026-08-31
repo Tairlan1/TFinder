@@ -2588,3 +2588,230 @@ class ScraperRunner:
 
 
 runner = ScraperRunner()
+
+
+# ============================================================================
+# ============ ИИ-ПЕРЕСМОТР УЖЕ СОБРАННЫХ ДАННЫХ (по кнопке) =================
+# ============================================================================
+# В отличие от ai_check_relevance() внутри process_tender (который смотрит
+# на КАЖДЫЙ тендер в реальном времени во время сбора), это - разовое
+# ручное действие: "прогнать текущий критерий по тому, что уже лежит в
+# Тендерах/Пограничных". Полезно, например, после того как критерий был
+# изменён/уточнён и хочется пересмотреть уже накопленное, не запуская
+# новый полный сбор.
+#
+#   - "Пограничные": то, что ИИ сочтёт релевантным - ПЕРЕНОСИТСЯ в основную
+#     таблицу (убирается из пограничных). Это безопасно - тендер просто
+#     "находится", а не удаляется.
+#   - "Тендеры": ничего не удаляется автоматически - несоответствующее
+#     критерию только ПОМЕЧАЕТСЯ (столбец "Обоснование ИИ" + пометка в
+#     ключевых словах), решение об удалении остаётся за пользователем
+#     (кнопка "Удалить" уже есть в интерфейсе).
+
+_ai_rescan_lock = threading.Lock()
+_ai_rescan_state = {
+    "running": False, "checked": 0, "total": 0,
+    "promoted": 0, "flagged": 0, "finished_at": None, "error": None,
+}
+
+
+def get_ai_rescan_state() -> dict:
+    with _ai_rescan_lock:
+        return dict(_ai_rescan_state)
+
+
+def start_ai_rescan(targets):
+    """targets: множество/список из 'borderline' и/или 'tenders'."""
+    settings = get_ai_settings()
+    if not settings.get("enabled"):
+        return False, "ИИ-проверка выключена — включите её на вкладке «ИИ-проверка»."
+    if not ai_provider_ready(settings.get("provider")):
+        return False, "Провайдер ИИ не готов (нет ключа) — проверьте вкладку «ИИ-проверка»."
+    targets = set(t for t in targets if t in ("borderline", "tenders"))
+    if not targets:
+        return False, "Не выбрано, что пересматривать."
+
+    with _ai_rescan_lock:
+        if _ai_rescan_state["running"]:
+            return False, "Проверка уже идёт."
+        _ai_rescan_state.update({
+            "running": True, "checked": 0, "total": 0,
+            "promoted": 0, "flagged": 0, "finished_at": None, "error": None,
+        })
+
+    thread = threading.Thread(target=_ai_rescan_worker, args=(targets, settings), daemon=True)
+    thread.start()
+    return True, "started"
+
+
+def _rescan_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0"
+        ),
+        "Accept-Language": "ru-RU,ru;q=0.9",
+    })
+    return session
+
+
+def _ai_rescan_worker(targets, settings):
+    log("=" * 50)
+    log(f"[ИИ-пересмотр] Начинаю пересмотр уже собранных данных ({', '.join(sorted(targets))})...")
+    session = _rescan_session()
+    try:
+        if "borderline" in targets:
+            _ai_rescan_borderline(session, settings)
+        if "tenders" in targets:
+            _ai_rescan_tenders(session, settings)
+    except Exception as e:
+        log_error_traceback(f"ai rescan worker: {e}")
+        with _ai_rescan_lock:
+            _ai_rescan_state["error"] = str(e)
+    finally:
+        with _ai_rescan_lock:
+            _ai_rescan_state["running"] = False
+            _ai_rescan_state["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            snap = dict(_ai_rescan_state)
+        log(f"[ИИ-пересмотр] Готово. Проверено: {snap['checked']}, "
+            f"перенесено из пограничных: {snap['promoted']}, помечено в тендерах: {snap['flagged']}.")
+
+
+def _ai_rescan_borderline(session: requests.Session, settings: dict):
+    if not os.path.exists(BORDERLINE_LOG_FILE):
+        log("[ИИ-пересмотр] Пограничных кандидатов нет.")
+        return
+    with open(BORDERLINE_LOG_FILE, "r", encoding="utf-8") as f:
+        raw_lines = f.readlines()
+
+    entries = []
+    for line in raw_lines:
+        stripped = line.rstrip("\n")
+        if not stripped:
+            continue
+        parts = stripped.split("\t")
+        if len(parts) < 5:
+            continue
+        ts, score_part, number_anno, url, title = parts[:5]
+        extra = {}
+        for p in parts[5:]:
+            if "=" in p:
+                k, _, v = p.partition("=")
+                extra[k] = v
+        entries.append({
+            "line": line, "number_anno": number_anno, "url": url, "title": title,
+            "amount": extra.get("amount", ""), "start_date": extra.get("start_date", ""),
+            "end_date": extra.get("end_date", ""), "keywords": extra.get("keywords", ""),
+        })
+
+    if not entries:
+        log("[ИИ-пересмотр] Пограничных кандидатов нет.")
+        return
+
+    log(f"[ИИ-пересмотр] Пограничных к проверке: {len(entries)}")
+    with _ai_rescan_lock:
+        _ai_rescan_state["total"] += len(entries)
+
+    kept_lines = []
+    for entry in entries:
+        with _ai_rescan_lock:
+            _ai_rescan_state["checked"] += 1
+
+        description = ""
+        try:
+            html = fetch_html(session, entry["url"], attempts=2)
+            detail = parse_detail_page(html, entry["url"])
+            description = detail.get("description", "")
+        except Exception:
+            pass  # если карточка не открылась - проверяем хотя бы по названию
+
+        ai_result = ai_check_relevance(
+            entry["title"], description, settings["criteria"], settings["model"], settings["provider"],
+        )
+
+        if ai_result and ai_result["relevant"]:
+            status = _extract_detail_status(description) if description else ""
+            is_astana = bool(description) and ASTANA_CITY_RE.search(description[:4000]) is not None
+            keywords = [k.strip() for k in entry["keywords"].split(",") if k.strip()]
+            keywords.append("[ИИ] релевантно по критерию (пересмотр)")
+            row = {
+                "number_anno": entry["number_anno"], "title": entry["title"],
+                "customer_name": "", "organizer_name": "", "method": "",
+                "amount": entry["amount"], "status": status,
+                "start_date": entry["start_date"], "end_date": entry["end_date"],
+                "url": entry["url"], "matched_keywords": keywords, "documents": [],
+                "description": description,
+                "it_type": detect_it_type(entry["title"], description, ""),
+                "priority": detect_priority(entry["title"], description, ""),
+                "ai_reasoning": ai_result["reasoning"],
+            }
+            was_added = append_it_result(row, astana=is_astana)
+            if was_added:
+                with _ai_rescan_lock:
+                    _ai_rescan_state["promoted"] += 1
+                tag = "IT/Астана" if is_astana else "IT"
+                log(f"    [{tag}] {entry['number_anno']}: {entry['title'][:70]} (перенесён из пограничных)")
+            # тендер найден и (если новый) уже записан - не сохраняем строку
+            # обратно в borderline, независимо от was_added (если он там
+            # почему-то уже был - дублировать в логе всё равно незачем)
+        else:
+            kept_lines.append(entry["line"])
+
+    with open(BORDERLINE_LOG_FILE, "w", encoding="utf-8") as f:
+        f.writelines(kept_lines)
+
+
+def _ai_rescan_tenders(session: requests.Session, settings: dict):
+    title_col = HEADERS.index("Название лота/объявления") + 1
+    desc_col = HEADERS.index("Краткое описание/ТЗ (выдержка)") + 1
+    ai_col = HEADERS.index("Обоснование ИИ") + 1
+    keywords_col = HEADERS.index("Совпавшие IT-ключевые слова") + 1
+
+    for sink in (sink_main, sink_astana):
+        with sink.lock:
+            if sink.worksheet is None:
+                sink.init_for_run()
+            snapshot = []
+            for row_idx in range(2, sink.worksheet.max_row + 1):
+                title = sink.worksheet.cell(row=row_idx, column=title_col).value
+                if not title:
+                    continue
+                desc = sink.worksheet.cell(row=row_idx, column=desc_col).value or ""
+                snapshot.append((row_idx, title, desc))
+
+        if not snapshot:
+            continue
+
+        log(f"[ИИ-пересмотр] {os.path.basename(sink.path)}: проверяю {len(snapshot)} записей...")
+        with _ai_rescan_lock:
+            _ai_rescan_state["total"] += len(snapshot)
+
+        changed = False
+        for row_idx, title, desc in snapshot:
+            with _ai_rescan_lock:
+                _ai_rescan_state["checked"] += 1
+
+            ai_result = ai_check_relevance(
+                title, desc, settings["criteria"], settings["model"], settings["provider"],
+            )
+            if not ai_result:
+                continue  # проверка не удалась - строку не трогаем
+
+            with sink.lock:
+                sink.worksheet.cell(row=row_idx, column=ai_col).value = ai_result["reasoning"]
+                if not ai_result["relevant"]:
+                    old_kw = sink.worksheet.cell(row=row_idx, column=keywords_col).value or ""
+                    marker = "[ИИ: не соответствует критерию]"
+                    if marker not in old_kw:
+                        new_kw = f"{old_kw}, {marker}".strip(", ")
+                        sink.worksheet.cell(row=row_idx, column=keywords_col).value = new_kw
+            changed = True
+
+            if ai_result and not ai_result["relevant"]:
+                with _ai_rescan_lock:
+                    _ai_rescan_state["flagged"] += 1
+                log(f"    [!] {title[:60]} — ИИ считает несоответствующим критерию (не удалено, только помечено)")
+
+        if changed:
+            sink.save_now()

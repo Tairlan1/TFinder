@@ -153,6 +153,21 @@ def api_ai_settings_post():
     return jsonify({"ok": True, **settings})
 
 
+@app.route("/api/ai-rescan/start", methods=["POST"])
+def api_ai_rescan_start():
+    data = request.get_json(force=True, silent=True) or {}
+    targets = data.get("targets")
+    if not isinstance(targets, list):
+        return jsonify({"ok": False, "error": "'targets' должен быть списком"}), 400
+    ok, info = engine.start_ai_rescan(targets)
+    return jsonify({"ok": ok, "info": info, **engine.get_ai_rescan_state()})
+
+
+@app.route("/api/ai-rescan/state", methods=["GET"])
+def api_ai_rescan_state():
+    return jsonify(engine.get_ai_rescan_state())
+
+
 # ----------------------------------------------------------------------------
 # API: таблица найденных тендеров
 # ----------------------------------------------------------------------------

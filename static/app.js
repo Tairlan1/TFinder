@@ -12,6 +12,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     if (btn.dataset.tab === "favorites") loadFavorites();
     if (btn.dataset.tab === "keywords") loadKeywords();
     if (btn.dataset.tab === "ai") loadAiSettings();
+    if (btn.dataset.tab === "ai-rescan") pollAiRescanState();
   });
 });
 
@@ -947,4 +948,67 @@ document.getElementById("btn-save-ai-settings").addEventListener("click", async 
     statusEl.textContent = "Ошибка: " + (res.error || "не удалось сохранить");
     statusEl.className = "kw-status err";
   }
+});
+
+// ============================================================================
+// Вкладка "Пересмотр ИИ" (разовый прогон по уже собранным данным)
+// ============================================================================
+let aiRescanPollTimer = null;
+
+function renderAiRescanState(s) {
+  const statusLine = document.getElementById("ai-rescan-status-line");
+  const progress = document.getElementById("rescan-progress");
+  const btn = document.getElementById("btn-start-ai-rescan");
+
+  if (s.running) {
+    statusLine.textContent = "Пересмотр идёт...";
+    progress.style.display = "block";
+    btn.disabled = true;
+  } else {
+    btn.disabled = false;
+    if (s.finished_at) {
+      statusLine.textContent = s.error
+        ? `Завершилось с ошибкой (${s.finished_at}): ${s.error}`
+        : `Последний пересмотр завершён: ${s.finished_at}`;
+      progress.style.display = "block";
+    } else {
+      statusLine.textContent = "Пересмотр ещё ни разу не запускался.";
+      progress.style.display = "none";
+    }
+  }
+
+  document.getElementById("rescan-checked").textContent = s.checked;
+  document.getElementById("rescan-total").textContent = s.total;
+  document.getElementById("rescan-promoted").textContent = s.promoted;
+  document.getElementById("rescan-flagged").textContent = s.flagged;
+}
+
+async function pollAiRescanState() {
+  try {
+    const s = await api("/api/ai-rescan/state");
+    renderAiRescanState(s);
+    clearTimeout(aiRescanPollTimer);
+    if (s.running) {
+      aiRescanPollTimer = setTimeout(pollAiRescanState, 1500);
+    }
+  } catch (e) { /* игнорируем временные сбои опроса */ }
+}
+
+document.getElementById("btn-start-ai-rescan").addEventListener("click", async () => {
+  const targets = [];
+  if (document.getElementById("rescan-target-borderline").checked) targets.push("borderline");
+  if (document.getElementById("rescan-target-tenders").checked) targets.push("tenders");
+  if (!targets.length) {
+    alert("Выберите хотя бы одно — «Пограничные» или «Тендеры».");
+    return;
+  }
+  const res = await api("/api/ai-rescan/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targets }),
+  });
+  if (!res.ok) {
+    alert(res.info || "Не удалось запустить пересмотр");
+  }
+  pollAiRescanState();
 });
