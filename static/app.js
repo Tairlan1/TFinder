@@ -967,9 +967,13 @@ function renderAiRescanState(s) {
   } else {
     btn.disabled = false;
     if (s.finished_at) {
-      statusLine.textContent = s.error
-        ? `Завершилось с ошибкой (${s.finished_at}): ${s.error}`
-        : `Последний пересмотр завершён: ${s.finished_at}`;
+      if (s.error) {
+        statusLine.textContent = `Завершилось с ошибкой (${s.finished_at}): ${s.error}`;
+      } else if (s.checked > 0 && s.failed === s.checked) {
+        statusLine.textContent = `Завершено (${s.finished_at}), но ни одна проверка не удалась — см. «Живой лог» на вкладке «Сбор данных» для точной причины (обычно ключ или модель).`;
+      } else {
+        statusLine.textContent = `Последний пересмотр завершён: ${s.finished_at}`;
+      }
       progress.style.display = "block";
     } else {
       statusLine.textContent = "Пересмотр ещё ни разу не запускался.";
@@ -981,6 +985,7 @@ function renderAiRescanState(s) {
   document.getElementById("rescan-total").textContent = s.total;
   document.getElementById("rescan-promoted").textContent = s.promoted;
   document.getElementById("rescan-flagged").textContent = s.flagged;
+  document.getElementById("rescan-failed").textContent = s.failed;
 }
 
 async function pollAiRescanState() {

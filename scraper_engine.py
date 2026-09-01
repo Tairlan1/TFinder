@@ -698,8 +698,19 @@ def _parse_ai_json_response(text: str):
     return {"relevant": bool(data.get("relevant")), "reasoning": str(data.get("reasoning", ""))[:300]}
 
 
+# Причина последнего неудавшегося вызова ИИ - читается вызывающим кодом
+# (например, "Пересмотр ИИ"), чтобы показать пользователю ПОЧЕМУ проверка
+# не сработала, а не просто молча пропустить строку. ai_check_relevance()
+# по контракту всё равно возвращает None при ошибке (это не меняется, чтобы
+# не ломать process_tender) - это отдельный, дополнительный канал именно
+# для диагностики.
+_last_ai_error = None
+
+
 def _ai_check_relevance_gemini(title: str, description: str, criteria: str, model: str, api_key: str):
+    global _last_ai_error
     if not api_key:
+        _last_ai_error = "Не задан ключ Gemini"
         return None
     prompt = _AI_RELEVANCE_PROMPT.format(
         criteria=criteria.strip(), title=(title or "")[:300], description=(description or "")[:4000],
@@ -710,18 +721,28 @@ def _ai_check_relevance_gemini(title: str, description: str, criteria: str, mode
             url, json={"contents": [{"parts": [{"text": prompt}]}]},
             timeout=30,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            # Тело ответа Gemini при ошибке обычно прямо объясняет причину
+            # (неверный ключ, модель не найдена, превышена квота и т.д.) -
+            # это самое ценное, что можно показать пользователю.
+            _last_ai_error = f"Gemini HTTP {resp.status_code}: {resp.text[:300]}"
+            return None
         data = resp.json()
         text = data["candidates"][0]["content"]["parts"][0]["text"]
-        return _parse_ai_json_response(text)
+        result = _parse_ai_json_response(text)
+        _last_ai_error = None
+        return result
     except Exception as e:
+        _last_ai_error = f"Gemini: {e}"
         log_error_traceback(f"ai_check_relevance (gemini): {e}")
         return None
 
 
 def _ai_check_relevance_anthropic(title: str, description: str, criteria: str, model: str, api_key: str):
+    global _last_ai_error
     client = _get_anthropic_client(api_key)
     if client is None:
+        _last_ai_error = "Не задан ключ Anthropic или модуль 'anthropic' не установлен"
         return None
     try:
         resp = client.messages.create(
@@ -737,8 +758,11 @@ def _ai_check_relevance_anthropic(title: str, description: str, criteria: str, m
             }],
         )
         text = "".join(getattr(block, "text", "") for block in resp.content)
-        return _parse_ai_json_response(text)
+        result = _parse_ai_json_response(text)
+        _last_ai_error = None
+        return result
     except Exception as e:
+        _last_ai_error = f"Anthropic: {e}"
         log_error_traceback(f"ai_check_relevance (anthropic): {e}")
         return None
 
@@ -2611,13 +2635,35 @@ runner = ScraperRunner()
 _ai_rescan_lock = threading.Lock()
 _ai_rescan_state = {
     "running": False, "checked": 0, "total": 0,
-    "promoted": 0, "flagged": 0, "finished_at": None, "error": None,
+    "promoted": 0, "flagged": 0, "failed": 0, "finished_at": None, "error": None,
 }
+_ai_rescan_warned = False
 
 
 def get_ai_rescan_state() -> dict:
     with _ai_rescan_lock:
         return dict(_ai_rescan_state)
+
+
+def _note_ai_rescan_failure(ai_result):
+    """Вызывается после каждого ai_check_relevance() внутри пересмотра.
+    Если проверка не удалась (ai_result is None) - считает это в счётчик
+    'failed' и ОДИН раз (не на каждую из потенциально сотен строк) выводит
+    в видимый лог настоящую причину - чтобы 'проверено 70, везде 0' не
+    выглядело загадочно, а сразу было понятно, что дело в ключе/модели/
+    лимите, а не в том, что просто ничего не подошло."""
+    global _ai_rescan_warned
+    if ai_result is not None:
+        return
+    with _ai_rescan_lock:
+        _ai_rescan_state["failed"] += 1
+        already_warned = _ai_rescan_warned
+        _ai_rescan_warned = True
+    if not already_warned:
+        reason = _last_ai_error or "причина неизвестна"
+        log(f"[!] Проверка ИИ не удалась: {reason}")
+        log("[!] Проверьте ключ/модель на вкладке «ИИ-проверка» — дальнейшие "
+            "такие же сбои в этом прогоне будут просто считаться (см. «не удалось» в статистике).")
 
 
 def start_ai_rescan(targets):
@@ -2636,8 +2682,10 @@ def start_ai_rescan(targets):
             return False, "Проверка уже идёт."
         _ai_rescan_state.update({
             "running": True, "checked": 0, "total": 0,
-            "promoted": 0, "flagged": 0, "finished_at": None, "error": None,
+            "promoted": 0, "flagged": 0, "failed": 0, "finished_at": None, "error": None,
         })
+        global _ai_rescan_warned
+        _ai_rescan_warned = False
 
     thread = threading.Thread(target=_ai_rescan_worker, args=(targets, settings), daemon=True)
     thread.start()
@@ -2675,7 +2723,8 @@ def _ai_rescan_worker(targets, settings):
             _ai_rescan_state["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
             snap = dict(_ai_rescan_state)
         log(f"[ИИ-пересмотр] Готово. Проверено: {snap['checked']}, "
-            f"перенесено из пограничных: {snap['promoted']}, помечено в тендерах: {snap['flagged']}.")
+            f"перенесено из пограничных: {snap['promoted']}, помечено в тендерах: {snap['flagged']}, "
+            f"не удалось проверить: {snap['failed']}.")
 
 
 def _ai_rescan_borderline(session: requests.Session, settings: dict):
@@ -2729,6 +2778,8 @@ def _ai_rescan_borderline(session: requests.Session, settings: dict):
         ai_result = ai_check_relevance(
             entry["title"], description, settings["criteria"], settings["model"], settings["provider"],
         )
+        _note_ai_rescan_failure(ai_result)
+        polite_sleep((1.0, 1.5))  # не долбить API чаще лимита бесплатного тарифа
 
         if ai_result and ai_result["relevant"]:
             status = _extract_detail_status(description) if description else ""
@@ -2795,6 +2846,8 @@ def _ai_rescan_tenders(session: requests.Session, settings: dict):
             ai_result = ai_check_relevance(
                 title, desc, settings["criteria"], settings["model"], settings["provider"],
             )
+            _note_ai_rescan_failure(ai_result)
+            polite_sleep((1.0, 1.5))  # не долбить API чаще лимита бесплатного тарифа
             if not ai_result:
                 continue  # проверка не удалась - строку не трогаем
 
