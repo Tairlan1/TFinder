@@ -154,6 +154,14 @@ DEBUG_DUMP_DIR = os.path.join(BASE_DIR, "debug_html")
 IT_SCORE_THRESHOLD = 12
 BORDERLINE_SCORE_MIN = 6
 
+# Режим отбора во время нового сбора:
+#   keywords — строгий отбор только по активным ключевым словам;
+#   ai       — отбор ИИ без обязательного совпадения ключевых слов.
+# Важное правило: режим фиксируется на весь запуск и не смешивается с
+# пользовательской фильтрацией уже собранных тендеров.
+COLLECTION_FILTER_MODES = ("keywords", "ai")
+DEFAULT_COLLECTION_FILTER_MODE = "keywords"
+
 # ============================================================================
 # =================== КЛЮЧЕВЫЕ СЛОВА: ПРОФИЛИ ТЕМАТИК =========================
 # ============================================================================
@@ -968,7 +976,23 @@ def attach_to_running_edge():
 
 
 def get_cookies_dict(driver) -> dict:
-    return {c["name"]: c["value"] for c in driver.get_cookies()}
+    """Безопасно получает cookies из Edge.
+
+    Окно Edge может быть закрыто пользователем во время сбора. В этом случае
+    Selenium выбрасывает NoSuchWindowException. Это не должно обрушивать весь
+    цикл: анонимные GET-запросы goszakup уже поддерживаются без cookies.
+    """
+    if driver is None:
+        return {}
+    try:
+        return {c["name"]: c["value"] for c in driver.get_cookies()}
+    except Exception as e:
+        name = e.__class__.__name__
+        if name == "NoSuchWindowException" or "no such window" in str(e).lower():
+            log("[!] Окно Edge было закрыто. Продолжаю сбор без cookies браузера.")
+            return {}
+        log(f"[!] Не удалось получить cookies из Edge ({name}). Продолжаю без cookies.")
+        return {}
 
 
 def find_and_switch_to_goszakup_tab(driver):
@@ -1369,10 +1393,26 @@ def classify_is_it(title="", description="", documents=""):
         documents = documents.replace(_normalize(phrase), "")
 
     def _kw_hit(text: str, text_collapsed: str, kw: str) -> bool:
-        kw_norm = _normalize(kw)
-        if kw_norm in text:
-            return True
-        return _collapse_repeats(kw_norm) in text_collapsed
+        """Надёжное совпадение ключевого слова.
+
+        Длинные слова/стемы сохраняют прежний поиск по подстроке, потому что
+        это специально позволяет ловить формы вроде «программное/программный».
+        Короткие однословные ключи (например «пос», «пир», «api», «crm»)
+        обязательно должны быть отдельным словом: иначе «пос» совпадает с
+        «поставка», «комплектовка» и т.п. и создаёт массовые ложные срабатывания.
+        """
+        kw_norm = _normalize(kw).strip()
+        if not kw_norm:
+            return False
+
+        # Фразы и длинные стемы ищем как раньше.
+        if " " in kw_norm or "-" in kw_norm or len(kw_norm) > 4:
+            if kw_norm in text:
+                return True
+            return _collapse_repeats(kw_norm) in text_collapsed
+
+        # Короткие токены — только как самостоятельное слово/сокращение.
+        return re.search(r"(?<![\w])" + re.escape(kw_norm) + r"(?![\w])", text, re.UNICODE) is not None
 
     def scan(text, strong, medium, weak, multiplier):
         nonlocal score, matched
@@ -1408,7 +1448,14 @@ def classify_is_it(title="", description="", documents=""):
 
     combined_text_for_negatives = " ".join([title, description, documents])
     for kw in negative:
-        if kw in combined_text_for_negatives:
+        kw_norm = _normalize(kw).strip()
+        if not kw_norm:
+            continue
+        if " " in kw_norm or "-" in kw_norm or len(kw_norm) > 4:
+            hit = kw_norm in combined_text_for_negatives
+        else:
+            hit = re.search(r"(?<![\w])" + re.escape(kw_norm) + r"(?![\w])", combined_text_for_negatives, re.UNICODE) is not None
+        if hit:
             score -= 5
 
     matched = sorted(set(matched))
@@ -1976,7 +2023,19 @@ def fetch_html(session: requests.Session, url: str, attempts: int = 6) -> str:
     raise last_exc
 
 
-def process_tender(session: requests.Session, row: dict):
+def process_tender(session: requests.Session, row: dict, filter_mode: str = DEFAULT_COLLECTION_FILTER_MODE):
+    """Обрабатывает один тендер в режиме, выбранном для текущего запуска.
+
+    keywords: тендер попадает в основной список только если он прошёл
+              classify_is_it() по активным ключевым словам. ИИ в этом режиме
+              НЕ МОЖЕТ добавить тендер, который ключевые слова отклонили.
+
+    ai:      ключевые слова не являются обязательным условием; ИИ решает
+              релевантность по пользовательскому критерию.
+    """
+    if filter_mode not in COLLECTION_FILTER_MODES:
+        filter_mode = DEFAULT_COLLECTION_FILTER_MODE
+
     if "заверш" in row.get("status", "").lower():
         return None
     thread_session = get_thread_session(session)
@@ -1996,57 +2055,54 @@ def process_tender(session: requests.Session, row: dict):
     doc_display = [f"{d['name']} ({d['url']})" for d in detail["documents"]]
     doc_names = " ".join(d["name"] for d in detail["documents"])
 
-    is_it, score, matched_keywords = classify_is_it(
+    # Всегда сначала считаем keyword score - он нужен для статистики,
+    # borderline и прозрачного логирования. Но решение зависит от режима.
+    keyword_is_match, score, matched_keywords = classify_is_it(
         row.get("title", ""), detail.get("description", ""), doc_names
     )
 
-    if not is_it and SCAN_ATTACHED_DOCUMENTS and detail["documents"]:
+    if not keyword_is_match and SCAN_ATTACHED_DOCUMENTS and detail["documents"]:
         cookies = thread_session.cookies.get_dict()
         for doc in detail["documents"][:MAX_DOCS_TO_SCAN_IF_NO_MATCH]:
             text = get_document_text(doc["url"], thread_session, cookies)
             if text:
-                is_it, score, matched_keywords = classify_is_it(doc["name"], text, doc["name"])
-                if is_it:
+                doc_is_match, doc_score, doc_matches = classify_is_it(
+                    doc["name"], text, doc["name"]
+                )
+                if doc_is_match:
+                    keyword_is_match = True
+                    # Сохраняем именно подтверждение найденным документом.
+                    score = doc_score
+                    matched_keywords = doc_matches
                     break
 
-    ai_settings = get_ai_settings()
-    ai_enabled = bool(ai_settings.get("enabled")) and ai_provider_ready(ai_settings.get("provider"))
     ai_reasoning = ""
 
-    if not is_it:
-        in_borderline_zone = BORDERLINE_SCORE_MIN <= score < IT_SCORE_THRESHOLD
-        if ai_enabled and in_borderline_zone:
-            # Ключевые слова почти нашли (пограничный балл), но не дотянули -
-            # спрашиваем у ИИ, подходит ли тендер под свободно описанный
-            # критерий (устойчиво к падежам/синонимам, в отличие от
-            # сопоставления подстрок).
-            ai_result = ai_check_relevance(
-                row.get("title", ""), detail.get("description", ""),
-                ai_settings["criteria"], ai_settings["model"], ai_settings["provider"],
-            )
-            if ai_result and ai_result["relevant"]:
-                is_it = True
-                matched_keywords = list(matched_keywords) + ["[ИИ] релевантно по критерию"]
-                ai_reasoning = ai_result["reasoning"]
-        if not is_it:
-            if in_borderline_zone:
+    if filter_mode == "keywords":
+        # ЖЁСТКИЙ КОНТРАКТ keyword-only: никакого fallback на ИИ.
+        if not keyword_is_match:
+            if BORDERLINE_SCORE_MIN <= score < IT_SCORE_THRESHOLD:
                 log_borderline_candidate(row, score, matched_keywords)
             return None
-    elif ai_enabled and ai_settings.get("verify_mode") == "all":
-        # Режим "перепроверять всё": ИИ может отклонить то, что уже прошло
-        # по ключевым словам, если по смыслу это не соответствует критерию
-        # (ложное срабатывание). Отклонённое уходит в пограничные, а не
-        # молча теряется - можно посмотреть и поправить критерий/слова.
+
+    elif filter_mode == "ai":
+        ai_settings = get_ai_settings()
+        ai_enabled = bool(ai_settings.get("enabled")) and ai_provider_ready(ai_settings.get("provider"))
+        if not ai_enabled:
+            log(f"[!] Режим ИИ выбран, но провайдер не готов — тендер отклонён: {row.get('number_anno', row.get('id', ''))}")
+            return None
+
         ai_result = ai_check_relevance(
             row.get("title", ""), detail.get("description", ""),
             ai_settings["criteria"], ai_settings["model"], ai_settings["provider"],
         )
-        if ai_result:
-            if ai_result["relevant"]:
-                ai_reasoning = ai_result["reasoning"]
-            else:
-                log_borderline_candidate(row, score, matched_keywords + ["[ИИ отклонил]"])
-                return None
+        if not ai_result:
+            return None
+        if not ai_result["relevant"]:
+            return None
+        ai_reasoning = ai_result["reasoning"]
+        if not keyword_is_match:
+            matched_keywords = list(matched_keywords) + ["[ИИ] релевантно по критерию"]
 
     it_type = detect_it_type(row.get("title", ""), detail.get("description", ""), doc_names)
     priority = detect_priority(row.get("title", ""), detail.get("description", ""), doc_names)
@@ -2126,6 +2182,7 @@ class ScraperRunner:
         self.state = "idle"          # idle|launching|waiting_tab|ready|running|stopping|stopped|error
         self.driver = None
         self.base_url = None
+        self.filter_mode = DEFAULT_COLLECTION_FILTER_MODE
         self.thread = None
         self.stop_event = threading.Event()
         self.keepalive_stop = threading.Event()
@@ -2150,6 +2207,7 @@ class ScraperRunner:
             return {
                 "state": self.state,
                 "base_url": self.base_url,
+                "filter_mode": self.filter_mode,
                 "counts": dict(self.counts),
                 "error": self.error_message,
                 "selenium_available": SELENIUM_AVAILABLE,
@@ -2166,6 +2224,18 @@ class ScraperRunner:
                 self._restart_timer.cancel()
                 self._restart_timer = None
         log(f"Автоматический перезапуск при сбое: {'включён' if enabled else 'выключен'}.")
+
+    def set_filter_mode(self, mode: str):
+        mode = str(mode or "").strip().lower()
+        if mode not in COLLECTION_FILTER_MODES:
+            return False, f"Неизвестный режим фильтрации: {mode}"
+        with self.lock:
+            if self.state == "running":
+                return False, "Нельзя менять режим во время уже идущего сбора."
+            self.filter_mode = mode
+        label = "только ключевые слова" if mode == "keywords" else "ИИ без обязательных ключевых слов"
+        log(f"Режим отбора нового сбора: {label}.")
+        return True, mode
 
     def set_search_url(self, url: str):
         """Новый, основной способ задать URL с фильтрами - БЕЗ браузера.
@@ -2254,6 +2324,7 @@ class ScraperRunner:
                 return False, "Сначала укажите ссылку с фильтрами."
             self.state = "running"
             self.error_message = None
+            log(f"Запуск сбора в режиме: {'только ключевые слова' if self.filter_mode == 'keywords' else 'ИИ без обязательных ключевых слов'}.")
             # Новая сессия сбора - обнуляем счётчики "Статистика сессии".
             # Итоги ПРЕДЫДУЩЕЙ сессии при этом не теряются: они уже
             # сохранены в run_stats.json (см. _save_run_stats в finally
@@ -2503,7 +2574,12 @@ class ScraperRunner:
 
                 found_on_this_page = 0
                 executor = ThreadPoolExecutor(max_workers=DETAIL_WORKERS)
-                future_to_row = {executor.submit(process_tender, session, row): row for row in new_rows}
+                active_filter_mode = self.filter_mode
+                log(f"    Режим фильтрации этой страницы: {active_filter_mode}")
+                future_to_row = {
+                    executor.submit(process_tender, session, row, active_filter_mode): row
+                    for row in new_rows
+                }
                 try:
                     for future in as_completed(future_to_row):
                         if self.stop_event.is_set():

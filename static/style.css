@@ -120,6 +120,26 @@ main { padding: 20px 24px 60px; max-width: 1400px; margin: 0 auto; width: 100%; 
 
 .run-divider { height: 1px; background: var(--border); margin: 18px 0; }
 
+.collection-mode {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.collection-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 8px;
+  margin-top: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.collection-mode-option:hover { background: rgba(79, 124, 255, 0.06); }
+.collection-mode-option input { margin-top: 3px; accent-color: var(--accent); }
+.collection-mode-option span { display: flex; flex-direction: column; gap: 2px; }
+.collection-mode-option small { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+
 .url-input-row { display: flex; gap: 8px; }
 .url-input-row input {
   flex: 1;
@@ -467,6 +487,7 @@ tr.row-warning.row-viewed { opacity: 0.6; }
 }
 .profile-chip input { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); }
 .profile-chip.active-chip { border-color: var(--accent); background: rgba(79, 124, 255, 0.12); }
+.profile-selection-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .profile-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .kw-editor-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }

@@ -457,6 +457,14 @@ def api_run_state():
     return jsonify(engine.runner.snapshot())
 
 
+@app.route("/api/run/set_filter_mode", methods=["POST"])
+def api_run_set_filter_mode():
+    data = request.get_json(force=True, silent=True) or {}
+    mode = str(data.get("mode") or "").strip().lower()
+    ok, info = engine.runner.set_filter_mode(mode)
+    return jsonify({"ok": ok, "info": info, **engine.runner.snapshot()})
+
+
 @app.route("/api/run/set_url", methods=["POST"])
 def api_run_set_url():
     data = request.get_json(force=True, silent=True) or {}

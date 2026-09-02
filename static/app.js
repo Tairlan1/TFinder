@@ -44,6 +44,11 @@ function renderRunState(s) {
   baseUrlEl.textContent = s.base_url ? ("URL: " + s.base_url) : "";
   baseUrlEl.title = s.base_url || "";
 
+  const mode = s.filter_mode || "keywords";
+  document.querySelectorAll('input[name="collection-filter-mode"]').forEach(radio => {
+    if (document.activeElement !== radio) radio.checked = radio.value === mode;
+  });
+
   const urlInput = document.getElementById("search-url-input");
   if (document.activeElement !== urlInput && s.base_url && !urlInput.value) {
     urlInput.value = s.base_url;
@@ -244,7 +249,34 @@ document.getElementById("btn-ready").addEventListener("click", async () => {
   await api("/api/run/confirm_ready", { method: "POST" });
   pollRunState();
 });
+document.querySelectorAll('input[name="collection-filter-mode"]').forEach(radio => {
+  radio.addEventListener("change", async () => {
+    const res = await api("/api/run/set_filter_mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: radio.value }),
+    });
+    if (!res.ok) {
+      alert(res.info || "Не удалось сменить режим фильтрации");
+      pollRunState();
+    }
+  });
+});
+
 document.getElementById("btn-start").addEventListener("click", async () => {
+  const selected = document.querySelector('input[name="collection-filter-mode"]:checked');
+  if (selected) {
+    const modeRes = await api("/api/run/set_filter_mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: selected.value }),
+    });
+    if (!modeRes.ok) {
+      alert(modeRes.info || "Не удалось установить режим фильтрации");
+      pollRunState();
+      return;
+    }
+  }
   await api("/api/run/start", { method: "POST" });
   pollRunState();
 });
@@ -666,34 +698,64 @@ function setKwStatus(text, ok) {
   el.className = "kw-status" + (ok === true ? " ok" : ok === false ? " err" : "");
 }
 
+function setProfileSelectionStatus(text, ok) {
+  const el = document.getElementById("profile-selection-status");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "kw-status" + (ok === true ? " ok" : ok === false ? " err" : "");
+}
+
+// Что реально сохранено на сервере. Пока пользователь щёлкает чекбоксы,
+// меняется только pendingActiveProfiles. Это позволяет выбрать несколько
+// тематик и применить их одной кнопкой.
+let pendingActiveProfiles = null;
+
 function renderProfileChips() {
   const container = document.getElementById("profile-chips");
   const names = Object.keys(profilesState.profiles);
+  if (!Array.isArray(pendingActiveProfiles)) {
+    pendingActiveProfiles = Array.from(profilesState.active || []);
+  }
   container.innerHTML = names.map(name => `
-    <label class="profile-chip ${profilesState.active.includes(name) ? "active-chip" : ""}" data-profile="${escapeHtml(name)}">
-      <input type="checkbox" class="profile-active-checkbox" ${profilesState.active.includes(name) ? "checked" : ""}>
+    <label class="profile-chip ${pendingActiveProfiles.includes(name) ? "active-chip" : ""}" data-profile="${escapeHtml(name)}">
+      <input type="checkbox" class="profile-active-checkbox" ${pendingActiveProfiles.includes(name) ? "checked" : ""}>
       ${escapeHtml(name)}
     </label>
   `).join("");
 
   container.querySelectorAll(".profile-active-checkbox").forEach(cb => {
-    cb.addEventListener("change", async (e) => {
+    cb.addEventListener("change", (e) => {
       const chip = e.target.closest(".profile-chip");
       const name = chip.dataset.profile;
-      let newActive = new Set(profilesState.active);
-      if (e.target.checked) newActive.add(name); else newActive.delete(name);
-      newActive = Array.from(newActive);
-      const res = await api("/api/keyword-profiles/active", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: newActive }),
-      });
-      if (res.ok) {
-        profilesState.active = res.active;
-        chip.classList.toggle("active-chip", newActive.includes(name));
-      }
+      const set = new Set(pendingActiveProfiles);
+      if (e.target.checked) set.add(name); else set.delete(name);
+      pendingActiveProfiles = Array.from(set);
+      chip.classList.toggle("active-chip", e.target.checked);
+      const changed = JSON.stringify(Array.from(profilesState.active || []).sort()) !== JSON.stringify(pendingActiveProfiles.slice().sort());
+      setProfileSelectionStatus(changed ? "Есть несохранённые изменения" : "Выбор сохранён", changed ? null : true);
     });
   });
+}
+
+async function saveActiveProfiles() {
+  const res = await api("/api/keyword-profiles/active", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ active: pendingActiveProfiles }),
+  });
+  if (res.ok) {
+    profilesState = res;
+    pendingActiveProfiles = Array.from(res.active || []);
+    renderProfileChips();
+    setProfileSelectionStatus(
+      pendingActiveProfiles.length
+        ? `Сохранено: ${pendingActiveProfiles.join(", ")}`
+        : "Сохранено: ни одна тематика не выбрана",
+      true
+    );
+  } else {
+    setProfileSelectionStatus("Ошибка: " + (res.error || res.info || "не удалось сохранить выбор"), false);
+  }
 }
 
 function renderProfileSelect() {
@@ -718,6 +780,13 @@ function loadEditorFromProfile(name) {
 
 async function loadKeywords() {
   profilesState = await api("/api/keyword-profiles");
+  pendingActiveProfiles = Array.from(profilesState.active || []);
+  setProfileSelectionStatus(
+    pendingActiveProfiles.length
+      ? `Сохранено: ${pendingActiveProfiles.join(", ")}`
+      : "Сохранено: ни одна тематика не выбрана",
+    true
+  );
   const names = Object.keys(profilesState.profiles);
   if (!editingProfile || !names.includes(editingProfile)) {
     editingProfile = profilesState.active[0] || names[0];
@@ -730,6 +799,8 @@ async function loadKeywords() {
 document.getElementById("profile-editor-select").addEventListener("change", (e) => {
   loadEditorFromProfile(e.target.value);
 });
+
+document.getElementById("btn-save-active-profiles").addEventListener("click", saveActiveProfiles);
 
 document.getElementById("btn-save-keywords").addEventListener("click", async () => {
   const payload = {
@@ -770,6 +841,7 @@ document.getElementById("btn-new-profile").addEventListener("click", async () =>
   });
   if (res.ok) {
     profilesState = res;
+    pendingActiveProfiles = Array.from(res.active || []);
     editingProfile = name.trim();
     renderProfileChips();
     renderProfileSelect();
@@ -798,6 +870,7 @@ document.getElementById("btn-duplicate-profile").addEventListener("click", async
   });
   if (res.ok) {
     profilesState = res;
+    pendingActiveProfiles = Array.from(res.active || []);
     editingProfile = name.trim();
     renderProfileChips();
     renderProfileSelect();
@@ -815,6 +888,7 @@ document.getElementById("btn-rename-profile").addEventListener("click", async ()
   });
   if (res.ok) {
     profilesState = res;
+    pendingActiveProfiles = Array.from(res.active || []);
     editingProfile = newName.trim();
     renderProfileChips();
     renderProfileSelect();
@@ -835,6 +909,7 @@ document.getElementById("btn-delete-profile").addEventListener("click", async ()
   });
   if (res.ok) {
     profilesState = res;
+    pendingActiveProfiles = Array.from(res.active || []);
     editingProfile = Object.keys(profilesState.profiles)[0];
     renderProfileChips();
     renderProfileSelect();

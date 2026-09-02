@@ -80,6 +80,21 @@
 
           <div class="run-divider"></div>
 
+          <div class="collection-mode">
+            <div class="step-title">Режим отбора при сборе</div>
+            <div class="step-desc">Выберите, что именно имеет право попасть в новые тендеры. Это отдельный режим от фильтров вкладки «Тендеры».</div>
+            <label class="collection-mode-option">
+              <input type="radio" name="collection-filter-mode" value="keywords" checked>
+              <span><strong>Только ключевые слова</strong><small>строго: без совпадения по активным словам тендер не сохраняется; ИИ его не добавляет</small></span>
+            </label>
+            <label class="collection-mode-option">
+              <input type="radio" name="collection-filter-mode" value="ai">
+              <span><strong>ИИ без ключевых слов</strong><small>ключевые слова не обязательны; релевантность определяет ИИ по критерию</small></span>
+            </label>
+          </div>
+
+          <div class="run-divider"></div>
+
           <div class="step">
             <div class="step-num">▶</div>
             <div class="step-body">
@@ -272,6 +287,10 @@
           «Проектирование (AutoCAD)», если ищете и то, и другое.
         </p>
         <div id="profile-chips" class="profile-chips"></div>
+        <div class="profile-selection-actions">
+          <button id="btn-save-active-profiles" class="btn btn-primary" type="button">Сохранить выбор тематик</button>
+          <span id="profile-selection-status" class="kw-status"></span>
+        </div>
         <div class="profile-actions">
           <button id="btn-new-profile" class="btn btn-secondary" type="button">+ Новый профиль</button>
           <button id="btn-duplicate-profile" class="btn btn-secondary" type="button">Дублировать</button>
