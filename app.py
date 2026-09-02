@@ -153,6 +153,37 @@ def api_ai_settings_post():
     return jsonify({"ok": True, **settings})
 
 
+@app.route("/api/ai-rescan-settings", methods=["GET"])
+def api_ai_rescan_settings_get():
+    settings = engine.get_ai_rescan_settings()
+    return jsonify({
+        "model": settings.get("model", "gemini-2.5-flash"),
+        "prompt": settings.get("prompt", ""),
+        "gemini_api_key": settings.get("gemini_api_key", ""),
+        "gemini_ready": bool(settings.get("gemini_api_key")) or bool(os.environ.get("GEMINI_API_KEY")),
+    })
+
+
+@app.route("/api/ai-rescan-settings", methods=["POST"])
+def api_ai_rescan_settings_post():
+    data = request.get_json(force=True, silent=True) or {}
+    settings = engine.save_ai_rescan_settings(data)
+    return jsonify({
+        "ok": True,
+        "model": settings.get("model", "gemini-2.5-flash"),
+        "prompt": settings.get("prompt", ""),
+        "gemini_api_key": settings.get("gemini_api_key", ""),
+        "gemini_ready": bool(settings.get("gemini_api_key")) or bool(os.environ.get("GEMINI_API_KEY")),
+    })
+
+
+@app.route("/api/ai-rescan/results", methods=["GET"])
+def api_ai_rescan_results():
+    results = engine.get_ai_rescan_results()
+    status = engine.get_ai_rescan_state()
+    return jsonify({"results": results, "state": status})
+
+
 @app.route("/api/ai-rescan/start", methods=["POST"])
 def api_ai_rescan_start():
     data = request.get_json(force=True, silent=True) or {}

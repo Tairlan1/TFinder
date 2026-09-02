@@ -12,7 +12,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     if (btn.dataset.tab === "favorites") loadFavorites();
     if (btn.dataset.tab === "keywords") loadKeywords();
     if (btn.dataset.tab === "ai") loadAiSettings();
-    if (btn.dataset.tab === "ai-rescan") pollAiRescanState();
+    if (btn.dataset.tab === "ai-rescan") { loadAiRescanSettings(); pollAiRescanState(); }
   });
 });
 
@@ -698,64 +698,34 @@ function setKwStatus(text, ok) {
   el.className = "kw-status" + (ok === true ? " ok" : ok === false ? " err" : "");
 }
 
-function setProfileSelectionStatus(text, ok) {
-  const el = document.getElementById("profile-selection-status");
-  if (!el) return;
-  el.textContent = text;
-  el.className = "kw-status" + (ok === true ? " ok" : ok === false ? " err" : "");
-}
-
-// Что реально сохранено на сервере. Пока пользователь щёлкает чекбоксы,
-// меняется только pendingActiveProfiles. Это позволяет выбрать несколько
-// тематик и применить их одной кнопкой.
-let pendingActiveProfiles = null;
-
 function renderProfileChips() {
   const container = document.getElementById("profile-chips");
   const names = Object.keys(profilesState.profiles);
-  if (!Array.isArray(pendingActiveProfiles)) {
-    pendingActiveProfiles = Array.from(profilesState.active || []);
-  }
   container.innerHTML = names.map(name => `
-    <label class="profile-chip ${pendingActiveProfiles.includes(name) ? "active-chip" : ""}" data-profile="${escapeHtml(name)}">
-      <input type="checkbox" class="profile-active-checkbox" ${pendingActiveProfiles.includes(name) ? "checked" : ""}>
+    <label class="profile-chip ${profilesState.active.includes(name) ? "active-chip" : ""}" data-profile="${escapeHtml(name)}">
+      <input type="checkbox" class="profile-active-checkbox" ${profilesState.active.includes(name) ? "checked" : ""}>
       ${escapeHtml(name)}
     </label>
   `).join("");
 
   container.querySelectorAll(".profile-active-checkbox").forEach(cb => {
-    cb.addEventListener("change", (e) => {
+    cb.addEventListener("change", async (e) => {
       const chip = e.target.closest(".profile-chip");
       const name = chip.dataset.profile;
-      const set = new Set(pendingActiveProfiles);
-      if (e.target.checked) set.add(name); else set.delete(name);
-      pendingActiveProfiles = Array.from(set);
-      chip.classList.toggle("active-chip", e.target.checked);
-      const changed = JSON.stringify(Array.from(profilesState.active || []).sort()) !== JSON.stringify(pendingActiveProfiles.slice().sort());
-      setProfileSelectionStatus(changed ? "Есть несохранённые изменения" : "Выбор сохранён", changed ? null : true);
+      let newActive = new Set(profilesState.active);
+      if (e.target.checked) newActive.add(name); else newActive.delete(name);
+      newActive = Array.from(newActive);
+      const res = await api("/api/keyword-profiles/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: newActive }),
+      });
+      if (res.ok) {
+        profilesState.active = res.active;
+        chip.classList.toggle("active-chip", newActive.includes(name));
+      }
     });
   });
-}
-
-async function saveActiveProfiles() {
-  const res = await api("/api/keyword-profiles/active", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ active: pendingActiveProfiles }),
-  });
-  if (res.ok) {
-    profilesState = res;
-    pendingActiveProfiles = Array.from(res.active || []);
-    renderProfileChips();
-    setProfileSelectionStatus(
-      pendingActiveProfiles.length
-        ? `Сохранено: ${pendingActiveProfiles.join(", ")}`
-        : "Сохранено: ни одна тематика не выбрана",
-      true
-    );
-  } else {
-    setProfileSelectionStatus("Ошибка: " + (res.error || res.info || "не удалось сохранить выбор"), false);
-  }
 }
 
 function renderProfileSelect() {
@@ -780,13 +750,6 @@ function loadEditorFromProfile(name) {
 
 async function loadKeywords() {
   profilesState = await api("/api/keyword-profiles");
-  pendingActiveProfiles = Array.from(profilesState.active || []);
-  setProfileSelectionStatus(
-    pendingActiveProfiles.length
-      ? `Сохранено: ${pendingActiveProfiles.join(", ")}`
-      : "Сохранено: ни одна тематика не выбрана",
-    true
-  );
   const names = Object.keys(profilesState.profiles);
   if (!editingProfile || !names.includes(editingProfile)) {
     editingProfile = profilesState.active[0] || names[0];
@@ -799,8 +762,6 @@ async function loadKeywords() {
 document.getElementById("profile-editor-select").addEventListener("change", (e) => {
   loadEditorFromProfile(e.target.value);
 });
-
-document.getElementById("btn-save-active-profiles").addEventListener("click", saveActiveProfiles);
 
 document.getElementById("btn-save-keywords").addEventListener("click", async () => {
   const payload = {
@@ -841,7 +802,6 @@ document.getElementById("btn-new-profile").addEventListener("click", async () =>
   });
   if (res.ok) {
     profilesState = res;
-    pendingActiveProfiles = Array.from(res.active || []);
     editingProfile = name.trim();
     renderProfileChips();
     renderProfileSelect();
@@ -870,7 +830,6 @@ document.getElementById("btn-duplicate-profile").addEventListener("click", async
   });
   if (res.ok) {
     profilesState = res;
-    pendingActiveProfiles = Array.from(res.active || []);
     editingProfile = name.trim();
     renderProfileChips();
     renderProfileSelect();
@@ -888,7 +847,6 @@ document.getElementById("btn-rename-profile").addEventListener("click", async ()
   });
   if (res.ok) {
     profilesState = res;
-    pendingActiveProfiles = Array.from(res.active || []);
     editingProfile = newName.trim();
     renderProfileChips();
     renderProfileSelect();
@@ -909,7 +867,6 @@ document.getElementById("btn-delete-profile").addEventListener("click", async ()
   });
   if (res.ok) {
     profilesState = res;
-    pendingActiveProfiles = Array.from(res.active || []);
     editingProfile = Object.keys(profilesState.profiles)[0];
     renderProfileChips();
     renderProfileSelect();
@@ -1030,6 +987,90 @@ document.getElementById("btn-save-ai-settings").addEventListener("click", async 
 // ============================================================================
 let aiRescanPollTimer = null;
 
+async function loadAiRescanSettings() {
+  const s = await api("/api/ai-rescan-settings");
+  document.getElementById("rescan-gemini-key").value = s.gemini_api_key || "";
+  document.getElementById("rescan-prompt").value = s.prompt || "";
+  document.getElementById("rescan-model").value = s.model || "gemini-2.5-flash";
+}
+
+wireShowHideToggle("btn-toggle-rescan-gemini-key", "rescan-gemini-key");
+
+document.getElementById("btn-save-ai-rescan-settings").addEventListener("click", async () => {
+  const payload = {
+    gemini_api_key: document.getElementById("rescan-gemini-key").value,
+    prompt: document.getElementById("rescan-prompt").value,
+    model: document.getElementById("rescan-model").value,
+  };
+  const res = await api("/api/ai-rescan-settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const statusEl = document.getElementById("ai-rescan-save-status");
+  if (res.ok) {
+    statusEl.textContent = "Настройки пересмотра сохранены.";
+    statusEl.className = "kw-status ok";
+  } else {
+    statusEl.textContent = "Ошибка: " + (res.error || "не удалось сохранить");
+    statusEl.className = "kw-status err";
+  }
+});
+
+let aiRescanResultsCache = [];
+let aiRescanResultsFilter = "all";
+
+function renderAiRescanResults(results) {
+  aiRescanResultsCache = Array.isArray(results) ? results : [];
+  const box = document.getElementById("ai-rescan-results");
+  if (!box) return;
+  const filtered = aiRescanResultsCache.filter(r => {
+    if (aiRescanResultsFilter === "yes") return r.relevant === true;
+    if (aiRescanResultsFilter === "no") return r.relevant === false;
+    if (aiRescanResultsFilter === "failed") return r.relevant === null;
+    return true;
+  });
+  const yes = aiRescanResultsCache.filter(r => r.relevant === true).length;
+  const no = aiRescanResultsCache.filter(r => r.relevant === false).length;
+  const failed = aiRescanResultsCache.filter(r => r.relevant === null).length;
+  let html = `<div class="rescan-results-toolbar">` +
+    `<button type="button" class="btn btn-secondary rescan-filter-btn" data-rescan-filter="all">Все (${aiRescanResultsCache.length})</button>` +
+    `<button type="button" class="btn btn-secondary rescan-filter-btn" data-rescan-filter="yes">Подходят (${yes})</button>` +
+    `<button type="button" class="btn btn-secondary rescan-filter-btn" data-rescan-filter="no">Не подходят (${no})</button>` +
+    `<button type="button" class="btn btn-secondary rescan-filter-btn" data-rescan-filter="failed">Не удалось (${failed})</button>` +
+    `</div>`;
+  if (!filtered.length) {
+    html += `<div class="muted">Результатов в выбранной категории нет.</div>`;
+    box.innerHTML = html;
+    return;
+  }
+  for (const r of filtered) {
+    const cls = r.relevant === true ? "is-yes" : (r.relevant === false ? "is-no" : "is-failed");
+    const badge = r.relevant === true ? `<span class="rescan-badge yes">✓ ПОДХОДИТ</span>` :
+      (r.relevant === false ? `<span class="rescan-badge no">✕ НЕ ПОДХОДИТ</span>` : `<span class="rescan-badge failed">⚠ НЕ ПРОВЕРЕН</span>`);
+    html += `<div class="rescan-result-card ${cls}">` +
+      `<div class="rescan-result-head"><div><div class="rescan-result-title">${escapeHtml(r.title || "Без названия")}</div>` +
+      `<div class="rescan-result-meta">${escapeHtml(r.number_anno || "")} · ${escapeHtml(r.source || "")}</div></div>${badge}</div>` +
+      (r.amount ? `<div class="rescan-result-meta">Сумма: ${escapeHtml(r.amount)}</div>` : "") +
+      `<div class="rescan-result-reason">${escapeHtml(r.reasoning || "")}</div>` +
+      `<div class="rescan-result-links"><a class="btn btn-secondary" href="${escapeHtml(r.url || "#")}" target="_blank" rel="noopener">Тендер</a>` +
+      `<a class="btn btn-secondary" href="${escapeHtml(r.documents_url || r.url || "#")}" target="_blank" rel="noopener">Документы</a></div>` +
+      `</div>`;
+  }
+  box.innerHTML = html;
+  box.querySelectorAll("[data-rescan-filter]").forEach(btn => btn.addEventListener("click", () => {
+    aiRescanResultsFilter = btn.dataset.rescanFilter;
+    renderAiRescanResults(aiRescanResultsCache);
+  }));
+}
+
+async function loadAiRescanResults() {
+  try {
+    const data = await api("/api/ai-rescan/results");
+    renderAiRescanResults(data.results || []);
+  } catch (e) {}
+}
+
 function renderAiRescanState(s) {
   const statusLine = document.getElementById("ai-rescan-status-line");
   const progress = document.getElementById("rescan-progress");
@@ -1067,6 +1108,7 @@ async function pollAiRescanState() {
   try {
     const s = await api("/api/ai-rescan/state");
     renderAiRescanState(s);
+    await loadAiRescanResults();
     clearTimeout(aiRescanPollTimer);
     if (s.running) {
       aiRescanPollTimer = setTimeout(pollAiRescanState, 1500);
@@ -1091,4 +1133,5 @@ document.getElementById("btn-start-ai-rescan").addEventListener("click", async (
     alert(res.info || "Не удалось запустить пересмотр");
   }
   pollAiRescanState();
+  loadAiRescanResults();
 });

@@ -976,23 +976,7 @@ def attach_to_running_edge():
 
 
 def get_cookies_dict(driver) -> dict:
-    """Безопасно получает cookies из Edge.
-
-    Окно Edge может быть закрыто пользователем во время сбора. В этом случае
-    Selenium выбрасывает NoSuchWindowException. Это не должно обрушивать весь
-    цикл: анонимные GET-запросы goszakup уже поддерживаются без cookies.
-    """
-    if driver is None:
-        return {}
-    try:
-        return {c["name"]: c["value"] for c in driver.get_cookies()}
-    except Exception as e:
-        name = e.__class__.__name__
-        if name == "NoSuchWindowException" or "no such window" in str(e).lower():
-            log("[!] Окно Edge было закрыто. Продолжаю сбор без cookies браузера.")
-            return {}
-        log(f"[!] Не удалось получить cookies из Edge ({name}). Продолжаю без cookies.")
-        return {}
+    return {c["name"]: c["value"] for c in driver.get_cookies()}
 
 
 def find_and_switch_to_goszakup_tab(driver):
@@ -1102,6 +1086,16 @@ def _truncate_leaked_text(text: str, *markers: str) -> str:
     return text[:cut_at].strip(" ,.-\u00a0")
 
 
+def build_tender_url(tender_id_or_url: str) -> str:
+    """Возвращает ссылку на объявление в старом интерфейсе портала
+    государственных закупок Республики Казахстан."""
+    value = str(tender_id_or_url or "").strip()
+    tender_id = _extract_tender_id_from_url(value) if value else ""
+    if not tender_id and value.isdigit():
+        tender_id = value
+    return f"https://old.goszakup.gov.kz/ru/announce/index/{tender_id}" if tender_id else value
+
+
 def parse_list_page(html: str) -> list:
     soup = BeautifulSoup(html, "html.parser")
     results = []
@@ -1146,7 +1140,7 @@ def parse_list_page(html: str) -> list:
 
         results.append({
             "id": tender_id, "number_anno": number_anno, "title": title,
-            "url": f"https://goszakup.gov.kz/ru/announce/index/{tender_id}",
+            "url": build_tender_url(tender_id),
             "organizer_name": organizer_name, "customer_name": customer_name,
             "status": status, "method": method, "amount": amount,
             "start_date": start_date, "end_date": end_date,
@@ -1614,6 +1608,8 @@ class ExcelSink:
                 self.rows_since_save = 0
 
     def append_row(self, row: dict) -> bool:
+        row = dict(row)
+        row["url"] = build_tender_url(row.get("url", ""))
         tender_id = _extract_tender_id_from_url(row.get("url", ""))
 
         with self.lock:

@@ -410,6 +410,27 @@
         </p>
         <div id="ai-rescan-status-line" class="muted"></div>
 
+        <div class="ai-key-field">
+          <p class="muted">Gemini API key для пересмотра:</p>
+          <div class="ai-key-input-row">
+            <input type="password" id="rescan-gemini-key" placeholder="AIzaSy... или AQ...">
+            <button type="button" class="btn btn-secondary" id="btn-toggle-rescan-gemini-key">👁</button>
+          </div>
+        </div>
+
+        <p class="muted">Промпт для ИИ. Опишите своими словами, какие тендеры считать подходящими.</p>
+        <textarea id="rescan-prompt" rows="8" class="ai-criteria-textarea" placeholder="Например: Ищи только тендеры, где реально закупаются разработка ПО, внедрение и сопровождение информационных систем..."></textarea>
+        <div class="ai-settings-row">
+          <label class="ai-inline-label">Модель:
+            <select id="rescan-model">
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
+            </select>
+          </label>
+        </div>
+        <button id="btn-save-ai-rescan-settings" class="btn btn-secondary" type="button">Сохранить настройки пересмотра</button>
+        <div id="ai-rescan-save-status" class="kw-status"></div>
+
         <div class="rescan-targets">
           <label class="checkbox-label">
             <input type="checkbox" id="rescan-target-borderline" checked>
@@ -433,7 +454,10 @@
           </div>
         </div>
 
-        <p class="muted">Подробный ход проверки (какой тендер перенесён/помечен) виден в «Живом логе» на вкладке «Сбор данных».</p>
+        <p class="muted">После завершения здесь появится полный результат: какие тендеры подходят, какие не подходят, причина Gemini и ссылка на документы.</p>
+        <div id="ai-rescan-results" class="rescan-results">
+          <div class="muted">Результатов пока нет.</div>
+        </div>
       </div>
     </section>
 

@@ -487,7 +487,6 @@ tr.row-warning.row-viewed { opacity: 0.6; }
 }
 .profile-chip input { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); }
 .profile-chip.active-chip { border-color: var(--accent); background: rgba(79, 124, 255, 0.12); }
-.profile-selection-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .profile-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .kw-editor-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
@@ -504,3 +503,24 @@ tr.row-warning.row-viewed { opacity: 0.6; }
 
 a.tender-link { color: var(--accent); text-decoration: none; }
 a.tender-link:hover { text-decoration: underline; }
+
+#rescan-prompt { margin-top: 4px; }
+#btn-save-ai-rescan-settings { margin-bottom: 8px; }
+
+
+.rescan-results { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+.rescan-results-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+.rescan-filter-btn { padding:7px 11px; }
+.rescan-result-card { border:1px solid var(--border); background:var(--panel-2); border-radius:10px; padding:12px 14px; margin-bottom:9px; }
+.rescan-result-card.is-yes { border-left:4px solid var(--success); }
+.rescan-result-card.is-no { border-left:4px solid var(--danger); }
+.rescan-result-card.is-failed { border-left:4px solid var(--warn); }
+.rescan-result-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+.rescan-result-title { font-weight:600; }
+.rescan-result-meta { color:var(--muted); font-size:12px; margin-top:4px; }
+.rescan-result-reason { margin-top:8px; font-size:13px; }
+.rescan-result-links { display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; }
+.rescan-badge { font-size:11px; padding:3px 7px; border-radius:999px; border:1px solid var(--border); }
+.rescan-badge.yes { color:var(--success); }
+.rescan-badge.no { color:var(--danger); }
+.rescan-badge.failed { color:var(--warn); }
